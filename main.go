@@ -15,6 +15,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -24,12 +25,19 @@ import (
 
 	"github.com/hooto/hflag4g/hflag"
 	"github.com/lessos/lessgo/types"
+	"github.com/tdewolff/minify/v2"
+	"github.com/tdewolff/minify/v2/css"
+	"github.com/tdewolff/minify/v2/html"
+	"github.com/tdewolff/minify/v2/js"
 )
 
 // RHEL, CentOS
-//   yum install npm optipng upx
+//
+//	yum install npm optipng upx
+//
 // Debian, Ubuntu
-//   sudo apt-get install npm optipng upx
+//
+//	sudo apt-get install npm optipng upx
 //
 // sudo npm install -g uglify-js clean-css-cli html-minifier esformatter js-beautify
 var (
@@ -69,6 +77,8 @@ var (
 	err error
 )
 
+type minifyFunction func(w, r *bytes.Buffer) error
+
 func main() {
 	fmt.Println(Cmd())
 }
@@ -99,14 +109,24 @@ func Cmd() error {
 	}
 
 	{
+		// subfiles := lookupFiles(tmpDir, ".js")
+		// if err := cmdCompress(subfiles, jscp); err != nil {
+		// 	return fmt.Errorf("JsCompress %s", err.Error())
+		// }
+
+		// subfiles = lookupFiles(tmpDir, ".css")
+		// if err := cmdCompress(subfiles, csscp); err != nil {
+		// 	return fmt.Errorf("CssCompress %s", err.Error())
+		// }
+
 		subfiles := lookupFiles(tmpDir, ".js")
-		if err := cmdCompress(subfiles, jscp); err != nil {
-			return fmt.Errorf("JsCompress %s", err.Error())
+		if err := minifyFilter(subfiles, jsMinify); err != nil {
+			return fmt.Errorf("Javascript Compress %s", err.Error())
 		}
 
 		subfiles = lookupFiles(tmpDir, ".css")
-		if err := cmdCompress(subfiles, csscp); err != nil {
-			return fmt.Errorf("CssCompress %s", err.Error())
+		if err := minifyFilter(subfiles, cssMinify); err != nil {
+			return fmt.Errorf("CSS Compress %s", err.Error())
 		}
 	}
 
@@ -277,4 +297,54 @@ func cmdCompress(ls types.ArrayString, cmd_str string) error {
 	}
 
 	return nil
+}
+
+func minifyFilter(files types.ArrayString, fn minifyFunction) error {
+
+	minify := func(src []byte, fn minifyFunction) ([]byte, error) {
+
+		var (
+			w bytes.Buffer
+			r = bytes.NewBuffer(src)
+		)
+
+		if err := fn(&w, r); err != nil {
+			return nil, err
+		}
+
+		return w.Bytes(), nil
+	}
+
+	for _, file := range files {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return err
+		}
+		if len(b) < 10 {
+			continue
+		}
+		b2, err := minify(b, fn)
+		if err != nil {
+			return err
+		}
+		if err = os.WriteFile(file, b2, 0644); err != nil {
+			return err
+		}
+		fmt.Printf("  minify ok, size %d -> %d (%.2f), file %s\n",
+			len(b), len(b2), float64(len(b2))/float64(len(b)), file)
+	}
+
+	return nil
+}
+
+func jsMinify(w, r *bytes.Buffer) error {
+	return js.Minify(nil, w, r, nil)
+}
+
+func cssMinify(w, r *bytes.Buffer) error {
+	return css.Minify(minify.New(), w, r, nil)
+}
+
+func htmlMinify(w, r *bytes.Buffer) error {
+	return html.Minify(minify.New(), w, r, nil)
 }
